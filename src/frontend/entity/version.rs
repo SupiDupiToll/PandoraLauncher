@@ -1,0 +1,49 @@
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+
+use gpui::{AppContext, Entity};
+
+use crate::{backend::{metadata::{manager::MetaLoadError, schemas::version_manifest::MinecraftVersionManifest}, BackendHandle}, bridge::MessageToBackend};
+
+pub struct VersionEntries {
+    pub manifest: Option<Result<Arc<MinecraftVersionManifest>, MetaLoadError>>,
+    sent_initial_load: AtomicBool,
+    pending_reload: AtomicBool,
+    backend_handle: BackendHandle
+}
+
+impl VersionEntries {
+    pub fn new(backend_handle: BackendHandle) -> Self {
+        Self {
+            manifest: None,
+            sent_initial_load: AtomicBool::new(false),
+            pending_reload: AtomicBool::new(false),
+            backend_handle
+        }
+    }
+
+    pub fn set<C: AppContext>(entity: &Entity<Self>, manifest: Result<Arc<MinecraftVersionManifest>, MetaLoadError>, cx: &mut C) {
+        entity.update(cx, |entries, cx| {
+            entries.pending_reload.store(false, Ordering::Relaxed);
+            entries.manifest = Some(manifest);
+            cx.notify();
+        });
+    }
+
+    pub fn load_if_missing(&self) {
+        if self.sent_initial_load.swap(true, Ordering::Relaxed) == false {
+            self.backend_handle.send(MessageToBackend::LoadVersionManifest {
+                reload: false
+            });
+        }
+    }
+
+    pub fn reload(&self) {
+        if self.pending_reload.swap(true, Ordering::Relaxed) == false {
+            self.sent_initial_load.store(true, Ordering::Relaxed);
+
+            self.backend_handle.send(MessageToBackend::LoadVersionManifest {
+                reload: true
+            });
+        }
+    }
+}
