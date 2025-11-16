@@ -10,7 +10,7 @@ use std::{
 use atomic_time::AtomicOptionInstant;
 use tokio_util::sync::CancellationToken;
 
-use crate::{handle::FrontendHandle, message::MessageToFrontend, serial::AtomicSetSerial};
+use crate::{handle::FrontendHandle, message::MessageToFrontend, serial::AtomicOptionSerial};
 
 #[derive(Default, Clone, Debug)]
 pub struct ModalAction {
@@ -107,7 +107,7 @@ impl ProgressTrackers {
 pub struct ProgressTracker {
     inner: Arc<ProgressTrackerInner>,
     sender: FrontendHandle,
-    notify_serial: AtomicSetSerial,
+    notify_serial: AtomicOptionSerial,
 }
 
 struct ProgressTrackerInner {
@@ -130,8 +130,6 @@ impl std::fmt::Debug for ProgressTrackerInner {
 
 impl ProgressTracker {
     pub fn new(title: Arc<str>, sender: FrontendHandle) -> Self {
-        let notify_serial = AtomicSetSerial::default();
-        notify_serial.set(sender.last_serial());
         Self {
             inner: Arc::new(ProgressTrackerInner {
                 count: AtomicUsize::new(0),
@@ -141,7 +139,7 @@ impl ProgressTracker {
                 title: RwLock::new(title),
             }),
             sender,
-            notify_serial,
+            notify_serial: AtomicOptionSerial::default(),
         }
     }
 
@@ -201,8 +199,6 @@ impl ProgressTracker {
     }
 
     pub fn notify(&self) {
-        let serial = self.notify_serial.get();
-        let new_serial = self.sender.send_with_serial(MessageToFrontend::Refresh, Some(serial));
-        self.notify_serial.set(new_serial);
+        self.sender.send_with_serial(MessageToFrontend::Refresh, &self.notify_serial);
     }
 }

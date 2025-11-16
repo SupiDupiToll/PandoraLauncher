@@ -6,7 +6,7 @@ use std::{
 use bridge::{
     handle::BackendHandle,
     instance::{InstanceID, InstanceServerSummary, InstanceWorldSummary},
-    message::{AtomicBridgeDataLoadState, MessageToBackend, QuickPlayLaunch}, serial::Serial,
+    message::{AtomicBridgeDataLoadState, MessageToBackend, QuickPlayLaunch}, serial::AtomicOptionSerial,
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
@@ -26,8 +26,8 @@ pub struct InstanceQuickplaySubpage {
     world_list: Entity<ListState<WorldsListDelegate>>,
     servers_state: Arc<AtomicBridgeDataLoadState>,
     server_list: Entity<ListState<ServersListDelegate>>,
-    worlds_serial: Option<Serial>,
-    servers_serial: Option<Serial>,
+    worlds_serial: AtomicOptionSerial,
+    servers_serial: AtomicOptionSerial,
 }
 
 impl InstanceQuickplaySubpage {
@@ -94,8 +94,8 @@ impl InstanceQuickplaySubpage {
             world_list,
             servers_state,
             server_list,
-            worlds_serial: None,
-            servers_serial: None,
+            worlds_serial: AtomicOptionSerial::default(),
+            servers_serial: AtomicOptionSerial::default(),
         }
     }
 }
@@ -106,22 +106,23 @@ impl Render for InstanceQuickplaySubpage {
 
         let state = self.worlds_state.load(Ordering::SeqCst);
         if state.should_send_load_request() {
-            let serial = self.backend_handle.send_with_serial(MessageToBackend::RequestLoadWorlds { id: self.instance }, self.worlds_serial);
-            self.worlds_serial = Some(serial);
+            self.backend_handle.send_with_serial(MessageToBackend::RequestLoadWorlds { id: self.instance }, &self.worlds_serial);
         }
 
         let state = self.servers_state.load(Ordering::SeqCst);
         if state.should_send_load_request() {
-            let serial = self.backend_handle.send_with_serial(MessageToBackend::RequestLoadServers { id: self.instance }, self.servers_serial);
-            self.servers_serial = Some(serial);
+            self.backend_handle.send_with_serial(MessageToBackend::RequestLoadServers { id: self.instance }, &self.servers_serial);
         }
+
+        let worlds_header = div().mb_1().ml_1().text_lg().underline().child("Worlds");
+        let servers_header = div().mb_1().ml_1().text_lg().underline().child("Servers");
 
         v_flex().p_4().gap_4().size_full().child(
             h_flex()
                 .size_full()
                 .gap_4()
                 .child(
-                    v_flex().size_full().text_lg().child("Worlds").child(
+                    v_flex().size_full().child(worlds_header).child(
                         v_flex()
                             .text_base()
                             .size_full()
@@ -132,7 +133,7 @@ impl Render for InstanceQuickplaySubpage {
                     ),
                 )
                 .child(
-                    v_flex().size_full().text_lg().child("Servers").child(
+                    v_flex().size_full().child(servers_header).child(
                         v_flex()
                             .text_base()
                             .size_full()

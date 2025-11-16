@@ -3,7 +3,7 @@ use std::sync::{
 };
 
 use bridge::{
-    handle::BackendHandle, install::{ContentDownload, ContentInstall, ContentInstallFile, ContentType, InstallTarget}, instance::{InstanceID, InstanceModID, InstanceModSummary}, keep_alive::{KeepAlive, KeepAliveHandle}, message::{AtomicBridgeDataLoadState, MessageToBackend}, serial::Serial
+    handle::BackendHandle, install::{ContentDownload, ContentInstall, ContentInstallFile, ContentType, InstallTarget}, instance::{InstanceID, InstanceModSummary}, message::{AtomicBridgeDataLoadState, MessageToBackend}, serial::AtomicOptionSerial
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
@@ -19,7 +19,7 @@ pub struct InstanceModsSubpage {
     backend_handle: BackendHandle,
     mods_state: Arc<AtomicBridgeDataLoadState>,
     mod_list: Entity<ListState<ModsListDelegate>>,
-    mods_serial: Option<Serial>,
+    mods_serial: AtomicOptionSerial,
     _add_from_file_task: Option<Task<()>>,
 }
 
@@ -71,7 +71,7 @@ impl InstanceModsSubpage {
             backend_handle,
             mods_state,
             mod_list,
-            mods_serial: None,
+            mods_serial: AtomicOptionSerial::default(),
             _add_from_file_task: None,
         }
     }
@@ -83,8 +83,7 @@ impl Render for InstanceModsSubpage {
 
         let state = self.mods_state.load(Ordering::SeqCst);
         if state.should_send_load_request() {
-            let serial = self.backend_handle.send_with_serial(MessageToBackend::RequestLoadMods { id: self.instance }, self.mods_serial);
-            self.mods_serial = Some(serial);
+            self.backend_handle.send_with_serial(MessageToBackend::RequestLoadMods { id: self.instance }, &self.mods_serial);
         }
 
         let header = h_flex()

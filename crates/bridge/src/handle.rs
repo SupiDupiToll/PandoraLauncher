@@ -1,11 +1,11 @@
-use std::{sync::{atomic::AtomicUsize, Arc}, usize};
+use std::sync::Arc;
 
 #[cfg(debug_assertions)]
 use tokio::sync::mpsc::{Receiver, Sender};
 #[cfg(not(debug_assertions))]
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::{message::{BridgeNotificationType, MessageToBackend, MessageToFrontend}, serial::{AtomicSerialProvider, AtomicSetSerial, Serial}};
+use crate::{message::{BridgeNotificationType, MessageToBackend, MessageToFrontend}, serial::{AtomicOptionSerial, AtomicSerialProvider, AtomicSetSerial, Serial}};
 
 pub fn create_pair() -> (BackendReceiver, BackendHandle, FrontendReceiver, FrontendHandle) {
     #[cfg(debug_assertions)]
@@ -102,19 +102,18 @@ impl BackendHandle {
         let _ = self.sender.send((message, None));
     }
 
-    pub fn send_with_serial(&self, message: MessageToBackend, serial: Option<Serial>) -> Serial {
-        if let Some(serial) = serial && self.processed_serial.get() < serial {
-            return serial;
+    pub fn send_with_serial(&self, message: MessageToBackend, serial: &AtomicOptionSerial) {
+        if let Some(serial) = serial.get() && self.processed_serial.get() < serial {
+            return;
         }
 
         let next_serial = self.next_serial.next();
+        serial.set(next_serial);
 
         #[cfg(debug_assertions)]
         let _ = self.sender.try_send((message, Some(next_serial))).unwrap();
         #[cfg(not(debug_assertions))]
         let _ = self.sender.send((message, Some(next_serial)));
-
-        next_serial
     }
 
     pub fn is_closed(&self) -> bool {
@@ -143,19 +142,18 @@ impl FrontendHandle {
         let _ = self.sender.send((message, None));
     }
 
-    pub fn send_with_serial(&self, message: MessageToFrontend, serial: Option<Serial>) -> Serial {
-        if let Some(serial) = serial && self.processed_serial.get() < serial {
-            return serial;
+    pub fn send_with_serial(&self, message: MessageToFrontend, serial: &AtomicOptionSerial) {
+        if let Some(serial) = serial.get() && self.processed_serial.get() < serial {
+            return;
         }
 
         let next_serial = self.next_serial.next();
+        serial.set(next_serial);
 
         #[cfg(debug_assertions)]
         let _ = self.sender.try_send((message, Some(next_serial))).unwrap();
         #[cfg(not(debug_assertions))]
         let _ = self.sender.send((message, Some(next_serial)));
-
-        next_serial
     }
 
     pub fn send_info(&self, info: impl Into<Arc<str>>) {

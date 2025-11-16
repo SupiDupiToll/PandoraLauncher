@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, sync::{atomic::AtomicUsize, Arc}};
+use std::{cmp::Ordering, sync::{atomic::{AtomicBool, AtomicUsize}, Arc}};
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Serial(usize);
@@ -39,5 +39,23 @@ pub struct AtomicSerialProvider(Arc<AtomicUsize>);
 impl AtomicSerialProvider {
     pub fn next(&self) -> Serial {
         Serial(self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1))
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct AtomicOptionSerial(Arc<(AtomicUsize, AtomicBool)>);
+
+impl AtomicOptionSerial {
+    pub(crate) fn set(&self, serial: Serial) {
+        self.0.0.store(serial.0, std::sync::atomic::Ordering::SeqCst);
+        self.0.1.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub(crate) fn get(&self) -> Option<Serial> {
+        if self.0.1.load(std::sync::atomic::Ordering::SeqCst) {
+            return Some(Serial(self.0.0.load(std::sync::atomic::Ordering::SeqCst)));
+        } else {
+            return None;
+        }
     }
 }
