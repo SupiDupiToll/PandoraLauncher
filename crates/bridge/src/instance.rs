@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{collections::HashSet, path::Path, sync::{atomic::AtomicBool, Arc}};
 
 use schema::modification::ModrinthModpackFileDownload;
 
@@ -86,7 +86,7 @@ pub enum LoaderSpecificModSummary {
     ModrinthModpack {
         downloads: Arc<[ModrinthModpackFileDownload]>,
         summaries: Arc<[Option<Arc<ModSummary>>]>,
-        overrides: Arc<[(Arc<Path>, Arc<[u8]>)]>
+        overrides: Arc<[(Arc<Path>, Arc<[u8]>)]>,
     },
 }
 

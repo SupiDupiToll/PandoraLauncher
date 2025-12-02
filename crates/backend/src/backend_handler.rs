@@ -460,7 +460,7 @@ impl BackendState {
 
                 match results {
                     Ok(updates) => {
-                        let mut meta_updates = self.mod_metadata_manager.updates.write().unwrap();
+                        let mut meta_updates = self.mod_metadata_manager.updates.write();
 
                         for update in updates {
                             update.mod_summary.update_status.store(update.action.to_status(), Ordering::Relaxed);
@@ -486,7 +486,7 @@ impl BackendState {
                         return;
                     };
 
-                    let Some(update_info) = self.mod_metadata_manager.updates.read().unwrap().get(&mod_summary.mod_summary.hash).cloned() else {
+                    let Some(update_info) = self.mod_metadata_manager.updates.read().get(&mod_summary.mod_summary.hash).cloned() else {
                         self.send.send_error("Can't update mod in instance, missing update action");
                         modal_action.set_finished();
                         return;

@@ -1,18 +1,16 @@
 use std::{
-    collections::HashMap, fs::File, io::{Cursor, Read}, path::{Path, PathBuf}, sync::{Arc, RwLockReadGuard}
+    collections::HashMap, fs::File, io::{Cursor, Read}, path::{Path, PathBuf}, sync::{atomic::AtomicBool, Arc}
 };
 
 use bridge::instance::{AtomicContentUpdateStatus, ContentUpdateStatus, LoaderSpecificModSummary, ModSummary};
-use futures::{FutureExt, TryFutureExt};
 use image::imageops::FilterType;
 use indexmap::IndexMap;
+use parking_lot::{RwLock, RwLockReadGuard};
 use rustc_hash::FxHashMap;
 use schema::{content::ContentSource, modification::ModrinthModpackFileDownload, modrinth::ModrinthFile};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use sha1::{Digest, Sha1};
-use tokio::task::spawn_blocking;
-use std::sync::RwLock;
 use zip::{read::ZipFile, ZipArchive};
 
 #[derive(Clone)]
@@ -41,10 +39,20 @@ pub struct ModMetadataManager {
     sources_json: PathBuf,
     by_hash: RwLock<FxHashMap<[u8; 20], Option<Arc<ModSummary>>>>,
     content_sources: RwLock<FxHashMap<[u8; 20], ContentSource>>,
+    parents_by_missing_child: RwLock<FxHashMap<[u8; 20], Vec<[u8; 20]>>>,
     pub updates: RwLock<FxHashMap<[u8; 20], ModUpdateAction>>,
 }
 
 impl ModMetadataManager {
+    pub fn file_downloaded(&self, hash: [u8; 20]) {
+        if let Some(parents) = self.parents_by_missing_child.write().remove(&hash) {
+            let mut by_hash = self.by_hash.write();
+            for parent in parents {
+                by_hash.remove(&parent);
+            }
+        }
+    }
+
     pub fn load(content_meta_dir: Arc<Path>, content_library_dir: Arc<Path>) -> Self {
         let sources_json = content_meta_dir.join("sources.json");
 
@@ -60,16 +68,17 @@ impl ModMetadataManager {
             sources_json,
             by_hash: Default::default(),
             content_sources: RwLock::new(content_sources),
+            parents_by_missing_child: Default::default(),
             updates: Default::default(),
         }
     }
 
     pub fn read_content_sources(&self) -> RwLockReadGuard<'_, FxHashMap<[u8; 20], ContentSource>> {
-        self.content_sources.read().unwrap()
+        self.content_sources.read()
     }
 
     pub fn set_content_sources(&self, sources: impl Iterator<Item = ([u8; 20], ContentSource)>) {
-        let mut content_sources = self.content_sources.write().unwrap();
+        let mut content_sources = self.content_sources.write();
 
         let mut changed = false;
         for (hash, source) in sources {
@@ -94,13 +103,13 @@ impl ModMetadataManager {
 
         // todo: cache on disk?
 
-        if let Some(summary) = self.by_hash.read().unwrap().get(&actual_hash) {
+        if let Some(summary) = self.by_hash.read().get(&actual_hash) {
             return summary.clone();
         }
 
         let summary = self.load_mod_summary(actual_hash, file, true);
 
-        self.by_hash.write().unwrap().insert(actual_hash, summary.clone());
+        self.by_hash.write().insert(actual_hash, summary.clone());
 
         summary
     }
@@ -241,7 +250,7 @@ impl ModMetadataManager {
                         return None;
                     };
 
-                    let by_hash = this.by_hash.read().unwrap();
+                    let by_hash = this.by_hash.read();
                     if let Some(cached) = by_hash.get(&file_hash).cloned() {
                         return cached;
                     }
@@ -257,10 +266,12 @@ impl ModMetadataManager {
 
                     if let Ok(mut file) = std::fs::File::open(file) {
                         let summary = this.load_mod_summary(file_hash, &mut file, false);
-                        let mut by_hash = this.by_hash.write().unwrap();
+                        let mut by_hash = this.by_hash.write();
                         by_hash.insert(file_hash, summary.clone());
                         return summary;
                     }
+
+                    this.parents_by_missing_child.write().entry(file_hash).or_default().push(hash);
 
                     None
                 }).await.ok().flatten()

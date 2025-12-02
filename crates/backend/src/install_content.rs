@@ -1,4 +1,4 @@
-use std::{ffi::OsString, io::Write, path::{Path, PathBuf}, sync::Arc};
+use std::{ffi::OsString, io::Write, path::{Path, PathBuf}, sync::{atomic::AtomicBool, Arc}};
 
 use bridge::{
     install::{ContentDownload, ContentInstall, ContentInstallFile},
@@ -7,7 +7,7 @@ use bridge::{
 };
 use schema::content::ContentSource;
 use sha1::{Digest, Sha1};
-use tokio::{io::AsyncWriteExt, sync::{Mutex, RwLock}};
+use tokio::io::AsyncWriteExt;
 
 use crate::BackendState;
 
@@ -123,14 +123,24 @@ impl BackendState {
 
                         let actual_hash = hasher.finalize();
 
-                        if *actual_hash != expected_hash {
-                            return Err(ContentInstallError::WrongHash);
+                        let wrong_hash = *actual_hash != expected_hash;
+                        let wrong_size = total_bytes != size;
+
+                        if wrong_hash || wrong_size {
+                            let _ = file.set_len(0).await;
+                            drop(file);
+                            let _ = tokio::fs::remove_file(&path).await;
+
+                            if wrong_hash {
+                                return Err(ContentInstallError::WrongHash);
+                            } else if wrong_size {
+                                return Err(ContentInstallError::WrongFilesize);
+                            } else {
+                                unreachable!();
+                            }
                         }
 
-                        if total_bytes != size {
-                            return Err(ContentInstallError::WrongFilesize);
-                        }
-
+                        self.mod_metadata_manager.file_downloaded(expected_hash);
                         Ok(InstallFromContentLibrary {
                             from: path,
                             replace: content_file.replace_old.clone(),
@@ -153,7 +163,7 @@ impl BackendState {
 
                         let mut hasher = Sha1::new();
                         hasher.update(&data);
-                        let hash = hasher.finalize();
+                        let hash: [u8; 20] = hasher.finalize().into();
 
                         let hash_as_str = hex::encode(hash);
 
@@ -168,7 +178,7 @@ impl BackendState {
                         let valid_hash_on_disk = {
                             let path = path.clone();
                             tokio::task::spawn_blocking(move || {
-                                crate::check_sha1_hash(&path, hash.into()).unwrap_or(false)
+                                crate::check_sha1_hash(&path, hash).unwrap_or(false)
                             }).await.unwrap()
                         };
 
@@ -177,6 +187,7 @@ impl BackendState {
 
                         if !valid_hash_on_disk {
                             tokio::fs::write(&path, &data).await?;
+                            self.mod_metadata_manager.file_downloaded(hash);
                         }
 
                         tracker.set_count(3);
