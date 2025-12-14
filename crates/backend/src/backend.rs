@@ -801,7 +801,9 @@ impl BackendState {
 impl BackendStateFileWatching {
     pub fn watch_filesystem(&mut self, path: &Path, target: WatchTarget, send: &FrontendHandle) {
         if self.watcher.watch(path, notify::RecursiveMode::NonRecursive).is_err() {
-            send.send_error(format!("Unable to watch directory {:?}, launcher may be out of sync with files!", path));
+            if path.exists() {
+                send.send_error(format!("Unable to watch directory {:?}, launcher may be out of sync with files!", path));
+            }
             return;
         }
         self.watching.insert(path.into(), target);
