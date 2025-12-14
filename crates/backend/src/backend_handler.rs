@@ -358,6 +358,7 @@ impl BackendState {
                 self.download_all_metadata().await;
             },
             MessageToBackend::InstallContent { content, modal_action } => {
+                // todo: switch loader of instance if applicable
                 self.install_content(content, modal_action.clone()).await;
                 modal_action.set_finished();
                 self.send.send(MessageToFrontend::Refresh);
