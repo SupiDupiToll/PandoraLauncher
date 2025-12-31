@@ -397,6 +397,8 @@ impl ModsListDelegate {
     }
 
     fn set_mods(&mut self, actual_mods: &[InstanceModSummary]) {
+        let last_mods_len = self.mods.len();
+
         let mut mods = Vec::with_capacity(actual_mods.len());
         let mut children = Vec::with_capacity(actual_mods.len());
 
@@ -457,6 +459,9 @@ impl ModsListDelegate {
         self.children = children;
         self.searched = None;
         self.confirming_delete.store(0, Ordering::Release);
+        if last_mods_len != self.mods.len() {
+            self.expanded.store(0, Ordering::Release);
+        }
         let _ = self.actual_perform_search(&self.last_query.clone());
     }
 
