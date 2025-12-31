@@ -45,7 +45,7 @@ jobs:
         uses: rui314/setup-mold@v1
 
       - name: Run build script
-        run: ${{ matrix.platform.buildscript }} ${{ github.refname }}
+        run: ${{ matrix.platform.buildscript }} ${{ github.ref_name }}
         shell: bash
 
       - name: Upload artifacts
