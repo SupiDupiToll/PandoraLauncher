@@ -6,6 +6,7 @@ use bridge::instance::{AtomicContentUpdateStatus, ContentUpdateStatus, LoaderSpe
 use image::imageops::FilterType;
 use indexmap::IndexMap;
 use parking_lot::{RwLock, RwLockReadGuard};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rustc_hash::FxHashMap;
 use schema::{content::ContentSource, modification::ModrinthModpackFileDownload, modrinth::{ModrinthFile, ModrinthSideRequirement}};
 use serde::{Deserialize, Serialize};
@@ -253,46 +254,42 @@ impl ModMetadataManager {
 
         let lowercase_search_key = modrinth_index_json.name.to_lowercase();
 
-        let summaries_fut = modrinth_index_json.files.iter().cloned().map(|download| {
-            async move {
-                let this = self.clone();
-                tokio::task::spawn_blocking(move || {
-                    if let Some(env) = download.env {
-                        if env.client == ModrinthSideRequirement::Unsupported {
-                            return None;
-                        }
-                    }
-
-                    let mut file_hash = [0u8; 20];
-                    let Ok(_) = hex::decode_to_slice(&*download.hashes.sha1, &mut file_hash) else {
-                        return None;
-                    };
-
-                    if let Some(cached) = this.by_hash.read().get(&file_hash).cloned() {
-                        return cached;
-                    }
-
-                    let file_hash_as_str = hex::encode(file_hash);
-
-                    let mut file = this.content_library_dir.join(&file_hash_as_str[..2]);
-                    file.push(&file_hash_as_str);
-                    if let Some(extension) = typed_path::Utf8UnixPath::new(&*download.path).extension() {
-                        file.set_extension(extension);
-                    }
-
-                    if let Ok(mut file) = std::fs::File::open(file) {
-                        let summary = this.load_mod_summary(file_hash, &mut file, false);
-                        this.put(file_hash, summary.clone());
-                        return summary;
-                    }
-
-                    this.parents_by_missing_child.write().entry(file_hash).or_default().push(hash);
-
-                    None
-                }).await.ok().flatten()
+        let this = self.clone();
+        let summaries = modrinth_index_json.files.par_iter().map(|download| {
+            if let Some(env) = download.env {
+                if env.client == ModrinthSideRequirement::Unsupported {
+                    return None;
+                }
             }
+
+            let mut file_hash = [0u8; 20];
+            let Ok(_) = hex::decode_to_slice(&*download.hashes.sha1, &mut file_hash) else {
+                return None;
+            };
+
+            if let Some(cached) = this.by_hash.read().get(&file_hash).cloned() {
+                return cached;
+            }
+
+            let file_hash_as_str = hex::encode(file_hash);
+
+            let mut file = this.content_library_dir.join(&file_hash_as_str[..2]);
+            file.push(&file_hash_as_str);
+            if let Some(extension) = typed_path::Utf8UnixPath::new(&*download.path).extension() {
+                file.set_extension(extension);
+            }
+
+            if let Ok(mut file) = std::fs::File::open(file) {
+                let summary = this.load_mod_summary(file_hash, &mut file, false);
+                this.put(file_hash, summary.clone());
+                return summary;
+            }
+
+            this.parents_by_missing_child.write().entry(file_hash).or_default().push(hash);
+
+            None
         });
-        let summaries = futures::executor::block_on(futures::future::join_all(summaries_fut));
+        let summaries: Vec<_> = summaries.collect();
 
         let mut png_icon = None;
 

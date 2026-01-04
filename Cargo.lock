@@ -588,6 +588,7 @@ dependencies = [
  "parking_lot",
  "quick-xml 0.38.3",
  "rand 0.8.5",
+ "rayon",
  "regex",
  "reqwest",
  "rustc-hash 2.1.1",
