@@ -118,7 +118,7 @@ impl ModMetadataManager {
             return summary.clone();
         }
 
-        let summary = self.load_mod_summary(actual_hash, &mut Cursor::new(bytes), true);
+        let summary = self.load_mod_summary(actual_hash, &bytes, true);
 
         self.put(actual_hash, summary.clone());
 
@@ -137,33 +137,34 @@ impl ModMetadataManager {
         }
     }
 
-    fn load_mod_summary<R: Read + Seek>(self: &Arc<Self>, hash: [u8; 20], file: &mut R, allow_children: bool) -> Option<Arc<ModSummary>> {
-        let archive = zip::ZipArchive::new(file).ok()?;
+    fn load_mod_summary<R: rc_zip_sync::ReadZip>(self: &Arc<Self>, hash: [u8; 20], file: &R, allow_children: bool) -> Option<Arc<ModSummary>> {
+        let start = std::time::Instant::now();
+        let archive = file.read_zip().ok()?;
+        // let archive = zip::ZipArchive::new(file).ok()?;
+        println!("opening archive: {:?}", std::time::Instant::now() - start);
 
-        if archive.index_for_name("fabric.mod.json").is_some() {
+        if archive.by_name("fabric.mod.json").is_some() {
             Self::load_fabric_mod(hash, archive)
-        } else if allow_children && archive.index_for_name("modrinth.index.json").is_some() {
+        } else if allow_children && archive.by_name("modrinth.index.json").is_some() {
             self.load_modrinth_modpack(hash, archive)
         } else {
             None
         }
     }
 
-    fn load_fabric_mod<R: Read + Seek>(hash: [u8; 20], mut archive: ZipArchive<&mut R>) -> Option<Arc<ModSummary>> {
-        let mut file = match archive.by_name("fabric.mod.json") {
-            Ok(file) => file,
-            Err(..) => {
-                return None;
-            },
-        };
+    fn load_fabric_mod<R: rc_zip_sync::HasCursor>(hash: [u8; 20], mut archive: rc_zip_sync::ArchiveHandle<R>) -> Option<Arc<ModSummary>> {
+        let file = archive.by_name("fabric.mod.json")?;
 
-        let mut file_content = String::with_capacity(file.size() as usize);
-        file.read_to_string(&mut file_content).ok()?;
+        let mut bytes = file.bytes().ok()?;
 
         // Some mods violate the JSON spec by using raw newline characters inside strings (e.g. BetterGrassify)
-        file_content = file_content.replace("\n", " ");
+        for byte in bytes.iter_mut() {
+            if *byte == '\n' as u8 {
+                *byte = ' ' as u8;
+            }
+        }
 
-        let fabric_mod_json: FabricModJson = serde_json::from_str(&file_content).inspect_err(|e| {
+        let fabric_mod_json: FabricModJson = serde_json::from_slice(&bytes).inspect_err(|e| {
             eprintln!("Error parsing fabric.mod.json: {e}");
         }).ok()?;
 
@@ -183,7 +184,7 @@ impl ModMetadataManager {
         };
 
         let mut png_icon: Option<Arc<[u8]>> = None;
-        if let Some(icon) = icon && let Ok(icon_file) = archive.by_name(&icon) {
+        if let Some(icon) = icon && let Some(icon_file) = archive.by_name(&icon) {
             png_icon = load_icon(icon_file);
         }
 
@@ -210,51 +211,48 @@ impl ModMetadataManager {
         }))
     }
 
-    fn load_modrinth_modpack<R: Read + Seek>(self: &Arc<Self>, hash: [u8; 20], mut archive: ZipArchive<&mut R>) -> Option<Arc<ModSummary>> {
-        let file = match archive.by_name("modrinth.index.json") {
-            Ok(file) => file,
-            Err(..) => {
-                return None;
-            },
-        };
+    fn load_modrinth_modpack<R: rc_zip_sync::HasCursor>(self: &Arc<Self>, hash: [u8; 20], mut archive: rc_zip_sync::ArchiveHandle<R>) -> Option<Arc<ModSummary>> {
+        let file = archive.by_name("modrinth.index.json")?;
 
-        let modrinth_index_json: ModrinthIndexJson = serde_json::from_reader(file).unwrap();
+        // todo: don't unwrap here
+        let modrinth_index_json: ModrinthIndexJson = serde_json::from_slice(&file.bytes().unwrap()).unwrap();
 
         let mut overrides: IndexMap<Arc<Path>, Arc<[u8]>> = IndexMap::new();
 
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i).unwrap();
-            let Some(enclosed) = file.enclosed_name() else {
+        for entry in archive.entries() {
+            let Some(sanitized) = file.sanitized_name() else {
                 continue;
             };
-            if !file.is_file() {
+            if file.kind() != rc_zip_sync::rc_zip::EntryKind::File {
                 continue;
             }
 
-            let (prioritize, path) = if let Ok(path) = enclosed.strip_prefix("overrides") {
+            let (prioritize, path) = if let Some(path) = sanitized.strip_prefix("overrides") {
                 (false, path)
-            } else if let Ok(path) = enclosed.strip_prefix("client-overrides") {
+            } else if let Some(path) = sanitized.strip_prefix("client-overrides") {
                 (true, path)
             } else {
                 continue;
             };
 
-            let path = path.into();
+            // todo: finish this
+            // let path = path.into();
 
-            if !prioritize && overrides.contains_key(&path) {
-                continue;
-            }
+            // if !prioritize && overrides.contains_key(&path) {
+            //     continue;
+            // }
 
-            let mut data = Vec::with_capacity(file.size() as usize);
-            if file.read_to_end(&mut data).is_err() {
-                continue;
-            }
-            overrides.insert(path, data.into());
+            // let mut data = Vec::with_capacity(file.size() as usize);
+            // if file.read_to_end(&mut data).is_err() {
+            //     continue;
+            // }
+            // overrides.insert(path, data.into());
         }
 
         let lowercase_search_key = modrinth_index_json.name.to_lowercase();
 
         let this = self.clone();
+        let start = std::time::Instant::now();
         let summaries = modrinth_index_json.files.par_iter().map(|download| {
             if let Some(env) = download.env {
                 if env.client == ModrinthSideRequirement::Unsupported {
@@ -280,6 +278,7 @@ impl ModMetadataManager {
             }
 
             if let Ok(mut file) = std::fs::File::open(file) {
+                dbg!(&download.path);
                 let summary = this.load_mod_summary(file_hash, &mut file, false);
                 this.put(file_hash, summary.clone());
                 return summary;
@@ -290,10 +289,11 @@ impl ModMetadataManager {
             None
         });
         let summaries: Vec<_> = summaries.collect();
+        dbg!(std::time::Instant::now() - start);
 
         let mut png_icon = None;
 
-        if let Ok(icon) = archive.by_name("icon.png") {
+        if let Some(icon) = archive.by_name("icon.png") {
             png_icon = load_icon(icon);
         }
 
@@ -323,9 +323,9 @@ impl ModMetadataManager {
     }
 }
 
-fn load_icon<R: Read + Seek>(mut icon_file: ZipFile<'_, &mut R>) -> Option<Arc<[u8]>> {
-    let mut icon_bytes = Vec::with_capacity(icon_file.size() as usize);
-    let Ok(_) = icon_file.read_to_end(&mut icon_bytes) else {
+fn load_icon<R: rc_zip_sync::HasCursor>(mut icon_file: rc_zip_sync::EntryHandle<R>) -> Option<Arc<[u8]>> {
+    // let mut icon_bytes = Vec::with_capacity(icon_file.size() as usize);
+    let Ok(mut icon_bytes) = icon_file.bytes() else {
         return None;
     };
 
