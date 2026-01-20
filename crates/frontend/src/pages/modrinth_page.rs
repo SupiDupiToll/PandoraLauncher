@@ -11,7 +11,7 @@ use schema::{content::ContentSource, loader::Loader, modrinth::{
 }};
 
 use crate::{
-    component::error_alert::ErrorAlert, entity::{
+    component::{error_alert::ErrorAlert, page_path::PagePath}, entity::{
         DataEntities, instance::InstanceEntries, metadata::{AsMetadataResult, FrontendMetadata, FrontendMetadataResult}
     }, interface_config::InterfaceConfig, ts, ui
 };
@@ -19,7 +19,7 @@ use crate::{
 pub struct ModrinthSearchPage {
     data: DataEntities,
     hits: Vec<ModrinthHit>,
-    breadcrumb: Box<dyn Fn() -> Breadcrumb>,
+    page_path: PagePath,
     install_for: Option<InstanceID>,
     loading: Option<Subscription>,
     pending_clear: bool,
@@ -45,7 +45,7 @@ struct InstalledMod {
 }
 
 impl ModrinthSearchPage {
-    pub fn new(data: &DataEntities, install_for: Option<InstanceID>, breadcrumb: Box<dyn Fn() -> Breadcrumb>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(install_for: Option<InstanceID>, page_path: PagePath, data: &DataEntities, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search_state = cx.new(|cx| InputState::new(window, cx).placeholder("Search mods...").clean_on_escape());
 
         let mut can_install_latest = false;
@@ -76,7 +76,7 @@ impl ModrinthSearchPage {
         let mut page = Self {
             data: data.clone(),
             hits: Vec::new(),
-            breadcrumb,
+            page_path,
             install_for,
             loading: None,
             pending_clear: false,
@@ -767,13 +767,8 @@ impl Render for ModrinthSearchPage {
             .when_some(loader_button_group, |this, group| this.child(group))
             .child(category);
 
-        let breadcrumb = if self.install_for.is_some() {
-            (self.breadcrumb)().child("Add from Modrinth")
-        } else {
-            (self.breadcrumb)().child("Modrinth")
-        };
-
-        ui::page(cx, breadcrumb).child(h_flex().size_full().p_3().gap_3().child(parameters).child(content))
+        ui::page(cx, self.page_path.create_breadcrumb(&self.data, cx))
+            .child(h_flex().size_full().p_3().gap_3().child(parameters).child(content))
     }
 }
 

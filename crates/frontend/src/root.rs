@@ -206,14 +206,14 @@ pub fn upload_log_file(
 
 pub fn switch_page(
     page: PageType,
-    breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>,
+    breadcrumbs: &[PageType],
     window: &mut Window,
     cx: &mut App,
 ) {
     cx.update_global::<LauncherRootGlobal, ()>(|global, cx| {
         global.root.update(cx, |launcher_root, cx| {
             launcher_root.ui.update(cx, |ui, cx| {
-                ui.switch_page(page, breadcrumb, window, cx);
+                ui.switch_page(page, breadcrumbs, window, cx);
             });
         });
     });

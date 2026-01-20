@@ -5,45 +5,34 @@ use bridge::{
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
-    breadcrumb::Breadcrumb, button::{Button, ButtonVariants}, h_flex, tab::{Tab, TabBar}, Icon, IconName
+    button::{Button, ButtonVariants}, h_flex, tab::{Tab, TabBar}, Icon, IconName
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    entity::{DataEntities, instance::InstanceEntry},
-    pages::instance::{logs_subpage::InstanceLogsSubpage, mods_subpage::InstanceModsSubpage, quickplay_subpage::InstanceQuickplaySubpage, resource_packs_subpage::InstanceResourcePacksSubpage, settings_subpage::InstanceSettingsSubpage},
-    root, ui,
+    component::page_path::PagePath, entity::{DataEntities, instance::InstanceEntry}, pages::instance::{logs_subpage::InstanceLogsSubpage, mods_subpage::InstanceModsSubpage, quickplay_subpage::InstanceQuickplaySubpage, resource_packs_subpage::InstanceResourcePacksSubpage, settings_subpage::InstanceSettingsSubpage}, root, ui
 };
 
 pub struct InstancePage {
-    breadcrumb: Box<dyn Fn() -> Breadcrumb>,
+    page_path: PagePath,
     backend_handle: BackendHandle,
-    title: SharedString,
     data: DataEntities,
     instance: Entity<InstanceEntry>,
     subpage: InstanceSubpage,
-    _instance_subscription: Subscription,
 }
 
 impl InstancePage {
-    pub fn new(instance_id: InstanceID, subpage: InstanceSubpageType, data: &DataEntities, breadcrumb: Box<dyn Fn() -> Breadcrumb>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(instance_id: InstanceID, subpage: InstanceSubpageType, page_path: PagePath, data: &DataEntities, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let instance = data.instances.read(cx).entries.get(&instance_id).unwrap().clone();
-
-        let _instance_subscription = cx.observe(&instance, |page, instance, cx| {
-            let instance = instance.read(cx);
-            page.title = instance.title().into();
-        });
 
         let subpage = subpage.create(&instance, data, data.backend_handle.clone(), window, cx);
 
         Self {
-            breadcrumb,
+            page_path,
             backend_handle: data.backend_handle.clone(),
-            title: instance.read(cx).title().into(),
             data: data.clone(),
             instance,
             subpage,
-            _instance_subscription,
         }
     }
 
@@ -103,7 +92,7 @@ impl Render for InstancePage {
             }
         });
 
-        let breadcrumb = (self.breadcrumb)().child(self.title.clone());
+        let breadcrumb = self.page_path.create_breadcrumb(&self.data, cx);
         ui::page(cx, h_flex().gap_8().child(breadcrumb).child(h_flex().gap_3().child(button).child(open_dot_minecraft_button)))
             .child(
                 TabBar::new("bar")

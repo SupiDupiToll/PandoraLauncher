@@ -21,6 +21,8 @@ pub struct InterfaceConfig {
     #[serde(default, deserialize_with = "schema::try_deserialize")]
     pub main_page: SerializedPageType,
     #[serde(default, deserialize_with = "schema::try_deserialize")]
+    pub page_path: Vec<SerializedPageType>,
+    #[serde(default, deserialize_with = "schema::try_deserialize")]
     pub quick_delete_mods: bool,
     #[serde(default, deserialize_with = "schema::try_deserialize")]
     pub quick_delete_instance: bool,

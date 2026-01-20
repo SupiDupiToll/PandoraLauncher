@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    entity::{
-        instance::{InstanceAddedEvent, InstanceEntries, InstanceModifiedEvent, InstanceMovedToTopEvent, InstanceRemovedEvent}, DataEntities
+    component::page_path::PagePath, entity::{
+        DataEntities, instance::{InstanceAddedEvent, InstanceEntries, InstanceModifiedEvent, InstanceMovedToTopEvent, InstanceRemovedEvent}
     }, interface_config::InterfaceConfig, modals, pages::{instance::instance_page::{InstancePage, InstanceSubpageType}, instances_page::InstancesPage, modrinth_page::ModrinthSearchPage, syncing_page::SyncingPage}, png_render_cache, root
 };
 
@@ -160,7 +160,7 @@ impl LauncherUI {
                 if let LauncherPage::InstancePage(id, _, _) = this.page
                     && id == event.id
                 {
-                    this.switch_page(PageType::Instances, None, window, cx);
+                    this.switch_page(PageType::Instances, &[], window, cx);
                 }
                 cx.notify();
             });
@@ -174,11 +174,13 @@ impl LauncherUI {
                 cx.notify();
             });
 
-        let page_type = PageType::from_serialized(&InterfaceConfig::get(cx).main_page, data, cx);
+        let config = InterfaceConfig::get(cx);
+        let page_type = PageType::from_serialized(&config.main_page, data, cx);
+        let page_path: Vec<PageType> = config.page_path.iter().map(|page| PageType::from_serialized(page, data, cx)).collect();
 
         Self {
             data: data.clone(),
-            page: Self::create_page(&data, page_type, None, window, cx),
+            page: Self::create_page(&data, page_type, &page_path, window, cx),
             sidebar_state,
             recent_instances,
             _instance_added_subscription,
@@ -188,7 +190,8 @@ impl LauncherUI {
         }
     }
 
-    fn create_page(data: &DataEntities, page: PageType, breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>, window: &mut Window, cx: &mut Context<Self>) -> LauncherPage {
+    fn create_page(data: &DataEntities, page: PageType, path: &[PageType], window: &mut Window, cx: &mut Context<Self>) -> LauncherPage {
+        let path = PagePath::new(path.iter().cloned().chain(std::iter::once(page)).collect());
         match page {
             PageType::Instances => {
                 LauncherPage::Instances(cx.new(|cx| InstancesPage::new(data, window, cx)))
@@ -197,9 +200,8 @@ impl LauncherUI {
                 LauncherPage::Syncing(cx.new(|cx| SyncingPage::new(data, window, cx)))
             },
             PageType::Modrinth { installing_for } => {
-                let breadcrumb = breadcrumb.unwrap_or(Box::new(|| Breadcrumb::new().text_xl()));
                 let page = cx.new(|cx| {
-                    ModrinthSearchPage::new(data, installing_for, breadcrumb, window, cx)
+                    ModrinthSearchPage::new(installing_for, path, data, window, cx)
                 });
                 LauncherPage::Modrinth {
                     installing_for,
@@ -207,22 +209,25 @@ impl LauncherUI {
                 }
             },
             PageType::InstancePage(id, subpage) => {
-                let breadcrumb = breadcrumb.unwrap_or(Box::new(|| Breadcrumb::new().text_xl().child(BreadcrumbItem::new("Instances").on_click(|_, window, cx| {
-                    root::switch_page(PageType::Instances, None, window, cx);
-                }))));
                 LauncherPage::InstancePage(id, subpage, cx.new(|cx| {
-                    InstancePage::new(id, subpage, data, breadcrumb, window, cx)
+                    InstancePage::new(id, subpage, path, data, window, cx)
                 }))
             },
         }
     }
 
-    pub fn switch_page(&mut self, page: PageType, breadcrumb: Option<Box<dyn Fn() -> Breadcrumb>>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn switch_page(&mut self, page: PageType, breadcrumbs: &[PageType], window: &mut Window, cx: &mut Context<Self>) {
         if self.page.page_type() == page {
             return;
         }
-        InterfaceConfig::get_mut(cx).main_page = page.to_serialized(&self.data, cx);
-        self.page = Self::create_page(&self.data, page, breadcrumb, window, cx);
+
+        let main_page = page.to_serialized(&self.data, cx);
+        let page_path = breadcrumbs.iter().map(|page| page.to_serialized(&self.data, cx)).collect();
+        let config = InterfaceConfig::get_mut(cx);
+        config.main_page = main_page;
+        config.page_path = page_path;
+
+        self.page = Self::create_page(&self.data, page, breadcrumbs, window, cx);
         cx.notify();
     }
 }
@@ -236,12 +241,12 @@ impl Render for LauncherUI {
                 SidebarMenuItem::new("Instances")
                     .active(page_type == PageType::Instances)
                     .on_click(cx.listener(|launcher, _, window, cx| {
-                        launcher.switch_page(PageType::Instances, None, window, cx);
+                        launcher.switch_page(PageType::Instances, &[], window, cx);
                     })),
                 SidebarMenuItem::new("Syncing")
                     .active(page_type == PageType::Syncing)
                     .on_click(cx.listener(|launcher, _, window, cx| {
-                        launcher.switch_page(PageType::Syncing, None, window, cx);
+                        launcher.switch_page(PageType::Syncing, &[], window, cx);
                     })),
             ]),
         );
@@ -250,7 +255,7 @@ impl Render for LauncherUI {
             SidebarMenu::new().children([SidebarMenuItem::new("Modrinth")
                 .active(page_type == PageType::Modrinth { installing_for: None })
                 .on_click(cx.listener(|launcher, _, window, cx| {
-                    launcher.switch_page(PageType::Modrinth { installing_for: None }, None, window, cx);
+                    launcher.switch_page(PageType::Modrinth { installing_for: None }, &[], window, cx);
                 }))]),
         );
 
@@ -272,7 +277,7 @@ impl Render for LauncherUI {
                     SidebarMenuItem::new(name)
                         .active(active)
                         .on_click(cx.listener(move |launcher, _, window, cx| {
-                            launcher.switch_page(PageType::InstancePage(id, InstanceSubpageType::Quickplay), None, window, cx);
+                            launcher.switch_page(PageType::InstancePage(id, InstanceSubpageType::Quickplay), &[PageType::Instances], window, cx);
                         }))
                 }),
             ));

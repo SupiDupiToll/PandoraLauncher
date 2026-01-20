@@ -27,9 +27,10 @@ impl InstanceEntries {
         cx: &mut App,
     ) {
         entity.update(cx, |entries, cx| {
-            let instance = InstanceEntry {
+            let mut instance = InstanceEntry {
                 id,
                 name,
+                title: "".into(),
                 dot_minecraft_folder,
                 configuration,
                 status: InstanceStatus::NotRunning,
@@ -42,6 +43,7 @@ impl InstanceEntries {
                 resource_packs_state,
                 resource_packs: cx.new(|_| [].into()),
             };
+            instance.title = instance.create_title().into();
 
             entries.entries.insert_before(0, id, cx.new(|_| instance.clone()));
             cx.emit(InstanceAddedEvent { instance });
@@ -60,6 +62,13 @@ impl InstanceEntries {
     pub fn find_name_by_id(entity: &Entity<Self>, id: InstanceID, cx: &App) -> Option<SharedString> {
         if let Some(entry) = entity.read(cx).entries.get(&id) {
             return Some(entry.read(cx).name.clone())
+        }
+        None
+    }
+
+    pub fn find_title_by_id(entity: &Entity<Self>, id: InstanceID, cx: &App) -> Option<SharedString> {
+        if let Some(entry) = entity.read(cx).entries.get(&id) {
+            return Some(entry.read(cx).title())
         }
         None
     }
@@ -88,6 +97,7 @@ impl InstanceEntries {
                     instance.dot_minecraft_folder = dot_minecraft_folder.clone();
                     instance.configuration = configuration.clone();
                     instance.status = status;
+                    instance.title = instance.create_title().into();
                     cx.notify();
 
                     instance.clone()
@@ -177,6 +187,7 @@ impl InstanceEntries {
 pub struct InstanceEntry {
     pub id: InstanceID,
     pub name: SharedString,
+    pub title: SharedString,
     pub dot_minecraft_folder: Arc<Path>,
     pub configuration: InstanceConfiguration,
     pub status: InstanceStatus,
@@ -209,7 +220,11 @@ impl PartialEq for InstanceEntry {
 }
 
 impl InstanceEntry {
-    pub fn title(&self) -> String {
+    pub fn title(&self) -> SharedString {
+        self.title.clone()
+    }
+
+    fn create_title(&self) -> String {
         if self.name == &*self.configuration.minecraft_version {
             if self.configuration.loader == Loader::Vanilla {
                 format!("{}", self.name)

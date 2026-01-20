@@ -14,7 +14,7 @@ use rustc_hash::FxHashSet;
 use schema::{content::ContentSource, loader::Loader};
 use ustr::Ustr;
 
-use crate::{component::content_list::ContentListDelegate, entity::instance::InstanceEntry, interface_config::InterfaceConfig, png_render_cache, root};
+use crate::{component::content_list::ContentListDelegate, entity::instance::InstanceEntry, interface_config::InterfaceConfig, png_render_cache, root, ui::PageType};
 
 use super::instance_page::InstanceSubpageType;
 
@@ -97,22 +97,10 @@ impl Render for InstanceModsSubpage {
             }))
             .child(Button::new("addmr").label("Add from Modrinth").success().compact().small().on_click({
                 let instance = self.instance;
-                let instance_title = self.instance_title.clone();
                 move |_, window, cx| {
                     let page = crate::ui::PageType::Modrinth { installing_for: Some(instance) };
-
-                    let instance_title = instance_title.clone();
-                    let breadcrumb = move || {
-                        let instances_item = BreadcrumbItem::new("Instances").on_click(|_, window, cx| {
-                            root::switch_page(crate::ui::PageType::Instances, None, window, cx);
-                        });
-                        let instance_item = BreadcrumbItem::new(instance_title.clone()).on_click(move |_, window, cx| {
-                            root::switch_page(crate::ui::PageType::InstancePage(instance, InstanceSubpageType::Mods), None, window, cx);
-                        });
-                        Breadcrumb::new().text_xl().child(instances_item).child(instance_item)
-                    };
-
-                    root::switch_page(page, Some(Box::new(breadcrumb)), window, cx);
+                    let path = &[PageType::Instances, PageType::InstancePage(instance, InstanceSubpageType::Mods)];
+                    root::switch_page(page, path, window, cx);
                 }
             }))
             .child(Button::new("addfile").label("Add from file").success().compact().small().on_click({

@@ -3,6 +3,7 @@ pub mod error_alert;
 pub mod instance_dropdown;
 pub mod instance_list;
 pub mod named_dropdown;
+pub mod page_path;
 pub mod progress_bar;
 pub mod readonly_text_field;
 pub mod search_helper;
