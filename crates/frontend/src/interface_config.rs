@@ -22,6 +22,8 @@ pub struct InterfaceConfig {
     #[serde(default, deserialize_with = "schema::try_deserialize")]
     pub main_window_bounds: WindowBounds,
     #[serde(default, deserialize_with = "schema::try_deserialize")]
+    pub sidebar_width: f32,
+    #[serde(default, deserialize_with = "schema::try_deserialize")]
     pub main_page: SerializedPageType,
     #[serde(default, deserialize_with = "schema::try_deserialize")]
     pub page_path: Vec<SerializedPageType>,
