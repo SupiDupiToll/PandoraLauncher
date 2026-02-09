@@ -2,9 +2,13 @@ use bridge::{handle::BackendHandle, message::{MessageToBackend, SyncState}};
 use enumset::EnumSet;
 use gpui::{prelude::*, *};
 use gpui_component::{
-    button::{Button, ButtonVariants}, checkbox::Checkbox, h_flex, scroll::ScrollableElement, spinner::Spinner, tooltip::Tooltip, v_flex, ActiveTheme as _, Disableable, Icon, IconName, Sizable
+    button::{Button, ButtonVariants}, checkbox::Checkbox, h_flex, scroll::ScrollableElement, spinner::Spinner, tooltip::Tooltip, v_flex, ActiveTheme as _, Disableable, Icon, IconName, Sizable, input::{Input, InputEvent, InputState}
 };
 use schema::backend_config::SyncTarget;
+use std::path::PathBuf;
+use std::sync::Arc;
+use schema::instance::{InstanceMemoryConfiguration, InstanceJvmFlagsConfiguration, InstanceJvmBinaryConfiguration};
+use crate::interface_config::InterfaceConfig;
 
 use crate::{entity::DataEntities, ui};
 
@@ -14,16 +18,26 @@ pub struct SyncingPage {
     pending: EnumSet<SyncTarget>,
     loading: EnumSet<SyncTarget>,
     _get_sync_state_task: Task<()>,
+    // Global instance override configuration
+    global_override_enabled: bool,
+    global_memory: String,
+    global_jvm_flags: String,
+    global_java_path: String,
 }
 
 impl SyncingPage {
     pub fn new(data: &DataEntities, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let config = InterfaceConfig::get(cx);
         let mut page = Self {
             backend_handle: data.backend_handle.clone(),
             sync_state: SyncState::default(),
             pending: EnumSet::all(),
             loading: EnumSet::all(),
             _get_sync_state_task: Task::ready(()),
+            global_override_enabled: config.global_override_enabled,
+            global_memory: config.global_memory.as_ref().map(|m| m.min.to_string()).unwrap_or_default(),
+            global_jvm_flags: config.global_jvm_flags.as_ref().map(|f| f.flags.to_string()).unwrap_or_default(),
+            global_java_path: config.global_java_binary.as_ref().and_then(|b| b.path.as_ref()).map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
         };
 
         page.update_sync_state(cx);
@@ -125,6 +139,52 @@ impl Render for SyncingPage {
                     crate::open_folder(&sync_folder, window, cx);
                 }).w_72())
             })
+            .child(v_flex().gap_3()
+                .child("Global Instance Configuration")
+                .child(h_flex().gap_2()
+                    .child(Checkbox::new("global_override")
+                        .label("Enable Global Overrides")
+                        .checked(page.global_override_enabled)
+                        .on_click(cx.listener(|page, value, _, cx| {
+                            page.global_override_enabled = *value;
+                            InterfaceConfig::get_mut(cx).global_override_enabled = *value;
+                            cx.notify();
+                        }))
+                    )
+                    .child(Input::new(&page.global_memory)
+                        .label("Memory (MB)")
+                        .disabled(!page.global_override_enabled)
+                        .on_input(cx.listener(|page, value, _, cx| {
+                            page.global_memory = value.clone();
+                            if let Ok(min) = value.parse::<u32>() {
+                                InterfaceConfig::get_mut(cx).global_memory = Some(InstanceMemoryConfiguration{enabled:true, min, max:min});
+                            } else {
+                                InterfaceConfig::get_mut(cx).global_memory = None;
+                            }
+                            cx.notify();
+                        }))
+                    )
+                    .child(Input::new(&page.global_jvm_flags)
+                        .label("JVM Flags")
+                        .disabled(!page.global_override_enabled)
+                        .on_input(cx.listener(|page, value, _, cx| {
+                            page.global_jvm_flags = value.clone();
+                            InterfaceConfig::get_mut(cx).global_jvm_flags = Some(InstanceJvmFlagsConfiguration{enabled:true, flags:Arc::new(value)});
+                            cx.notify();
+                        }))
+                    )
+                    .child(Input::new(&page.global_java_path)
+                        .label("Java Path")
+                        .disabled(!page.global_override_enabled)
+                        .on_input(cx.listener(|page, value, _, cx| {
+                            page.global_java_path = value.clone();
+                            let path = PathBuf::from(value);
+                            InterfaceConfig::get_mut(cx).global_java_binary = Some(InstanceJvmBinaryConfiguration{enabled:true, path:Some(Arc::new(path))});
+                            cx.notify();
+                        }))
+                    )
+                )
+            )
             .child(div().border_b_1().border_color(cx.theme().border).text_lg().child("Files"))
             .child(self.create_entry("options", "Sync options.txt", SyncTarget::Options, warning, info, cx))
             .child(self.create_entry("servers", "Sync servers.dat", SyncTarget::Servers, warning, info, cx))
