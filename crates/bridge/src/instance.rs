@@ -1,6 +1,6 @@
 use std::{collections::HashSet, path::Path, sync::Arc};
 
-use schema::{aux::AuxDisabledChildren, content::ContentSource, modification::ModrinthModpackFileDownload};
+use schema::{auxiliary::AuxDisabledChildren, content::ContentSource, modification::ModrinthModpackFileDownload};
 
 use crate::safe_path::SafePath;
 

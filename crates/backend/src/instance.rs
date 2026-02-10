@@ -13,7 +13,7 @@ use bridge::{
 };
 use parking_lot::RwLock;
 use relative_path::RelativePath;
-use schema::{aux::{AuxDisabledChildren, AuxiliaryContentMeta}, instance::InstanceConfiguration};
+use schema::{auxiliary::{AuxDisabledChildren, AuxiliaryContentMeta}, instance::InstanceConfiguration};
 use strum::IntoEnumIterator;
 use thiserror::Error;
 

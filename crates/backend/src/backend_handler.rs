@@ -6,7 +6,7 @@ use bridge::{
 };
 use futures::TryFutureExt;
 use rustc_hash::{FxHashMap, FxHashSet};
-use schema::{aux::AuxiliaryContentMeta, content::ContentSource, modrinth::ModrinthLoader, version::{LaunchArgument, LaunchArgumentValue}};
+use schema::{auxiliary::AuxiliaryContentMeta, content::ContentSource, modrinth::ModrinthLoader, version::{LaunchArgument, LaunchArgumentValue}};
 use serde::Deserialize;
 use strum::IntoEnumIterator;
 use tokio::{io::AsyncBufReadExt, sync::Semaphore};
